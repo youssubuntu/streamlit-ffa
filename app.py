@@ -1,84 +1,82 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-st.title("Analyse de la Popularité - Statistiques FFA")
+st.set_page_config(page_title="Statistiques FFA", layout="wide")
 
-# Téléversement du fichier CSV
-uploaded_file = st.file_uploader("📂 Importez le fichier CSV contenant les données FFA", type="csv")
+# Chargement du fichier parquet
+df = pd.read_parquet("df_total_final.parquet")
 
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
+# Sidebar - Navigation
+st.sidebar.title("Navigation")
+page = st.sidebar.radio("Aller à :", [
+    "🏃 Participation par année et discipline",
+    "📊 Impact COVID / JO",
+    "🏅 Top 20 clubs",
+    "⭐ Clubs Élite A"
+])
 
-    # Préparation des filtres
-    annees = sorted(df['année'].dropna().unique())
-    disciplines = sorted(df['discipline'].dropna().unique())
-    clubs = sorted(df['club'].dropna().unique())
+# Filtres dans la sidebar
+st.sidebar.markdown("---")
+st.sidebar.subheader("Filtres")
 
-    # -------------------------------------------
-    # 1. PARTICIPATION PAR ANNÉE ET DISCIPLINE
-    # -------------------------------------------
-    st.header("1. Participation par année et discipline")
+annees = sorted(df['annee'].dropna().unique())
+disciplines = sorted(df['discipline'].dropna().unique())
+clubs = sorted(df['club'].dropna().unique())
 
-    selected_disciplines = st.multiselect("Choisir une ou plusieurs disciplines", disciplines, default=disciplines[:3])
+selected_years = st.sidebar.multiselect("Années", annees, default=annees)
+selected_disciplines = st.sidebar.multiselect("Disciplines", disciplines, default=disciplines)
+selected_clubs = st.sidebar.multiselect("Clubs", clubs, default=clubs)
 
-    df_filtered = df[df['discipline'].isin(selected_disciplines)]
-    df_grouped = df_filtered.groupby(['année', 'discipline'])['licenciés'].sum().reset_index()
+# Filtrage
+df_filtered = df[
+    df['annee'].isin(selected_years) &
+    df['discipline'].isin(selected_disciplines) &
+    df['club'].isin(selected_clubs)
+]
 
-    fig1 = px.line(df_grouped, x="année", y="licenciés", color="discipline", markers=True,
-                   title="Participation par année et discipline")
+# Page 1 : Participation
+if page == "🏃 Participation par année et discipline":
+    st.title("Participation par année et discipline")
+    df_grouped = df_filtered.groupby(['annee', 'discipline']).size().reset_index(name="participations")
+    fig1 = px.line(df_grouped, x="annee", y="participations", color="discipline", markers=True)
     st.plotly_chart(fig1, use_container_width=True)
 
-    # -------------------------------------------
-    # 2. COMPARAISON POST-COVID ET CYCLES JO
-    # -------------------------------------------
-    st.header("2. Impact du COVID et des Jeux Olympiques")
-
+# Page 2 : COVID et JO
+elif page == "📊 Impact COVID / JO":
+    st.title("Impact du COVID et des Jeux Olympiques")
     st.markdown("""
-    Les années de référence sont :
+    Années clés :
     - **2020** : COVID
-    - **2021** : JO Tokyo (reportés)
+    - **2021** : JO Tokyo
     - **2024** : JO Paris
     """)
-
-    df_agg = df.groupby("année")["licenciés"].sum().reset_index()
-    fig2 = px.bar(df_agg, x="année", y="licenciés", title="Évolution globale du nombre de licenciés")
-
-    # Ajout de repères COVID / JO
-    fig2.add_vline(x=2020, line_dash="dash", line_color="red", annotation_text="COVID", annotation_position="top left")
+    df_total = df.groupby("annee").size().reset_index(name="participations")
+    fig2 = px.bar(df_total, x="annee", y="participations", title="Évolution du nombre de performances")
+    fig2.add_vline(x=2020, line_dash="dash", line_color="red", annotation_text="COVID")
     fig2.add_vline(x=2021, line_dash="dot", line_color="blue", annotation_text="JO Tokyo")
     fig2.add_vline(x=2024, line_dash="dot", line_color="green", annotation_text="JO Paris")
-
     st.plotly_chart(fig2, use_container_width=True)
 
-    # -------------------------------------------
-    # 3. TOP 20 CLUBS EN PARTICIPATION
-    # -------------------------------------------
-    st.header("3. Top 20 clubs moteurs")
-
-    df_clubs = df.groupby("club")["licenciés"].sum().reset_index().sort_values(by="licenciés", ascending=False).head(20)
-    fig3 = px.bar(df_clubs, x="licenciés", y="club", orientation="h",
-                  title="Top 20 des clubs en nombre de licenciés", height=600)
+# Page 3 : Top clubs
+elif page == "🏅 Top 20 clubs":
+    st.title("Top 20 des clubs moteurs")
+    df_clubs = df_filtered.groupby("club").size().reset_index(name="participations")
+    df_top20 = df_clubs.sort_values(by="participations", ascending=False).head(20)
+    fig3 = px.bar(df_top20, x="participations", y="club", orientation="h", height=600)
     st.plotly_chart(fig3, use_container_width=True)
 
-    # -------------------------------------------
-    # 4. FOCUS CLUBS ÉLITE A
-    # -------------------------------------------
-    st.header("4. Clubs Élite A")
-
-    df_elite = df[df['label'] == "Élite A"]
-
-    if df_elite.empty:
-        st.warning("Aucun club 'Élite A' trouvé dans les données.")
+# Page 4 : Clubs Élite A (s'il y en a)
+elif page == "⭐ Clubs Élite A":
+    st.title("Clubs labellisés Élite A")
+    if 'label' not in df.columns:
+        st.warning("Aucune colonne 'label' dans les données.")
     else:
-        df_elite_agg = df_elite.groupby("club")["licenciés"].sum().reset_index().sort_values(by="licenciés", ascending=False)
-
-        fig4 = px.bar(df_elite_agg, x="licenciés", y="club", orientation="h",
-                      title="Clubs Élite A - Nombre total de licenciés", height=600)
-        st.plotly_chart(fig4, use_container_width=True)
-
-        st.markdown("[Voir classement FFA](https://www.athle.fr/asp.net/main.html/html.aspx?htmlid=2935)")
-
-else:
-    st.warning("Veuillez importer un fichier CSV pour afficher les visualisations.")
+        df_elite = df_filtered[df_filtered['label'] == "Élite A"]
+        if df_elite.empty:
+            st.warning("Aucun club 'Élite A' trouvé avec les filtres actuels.")
+        else:
+            df_elite_count = df_elite.groupby("club").size().reset_index(name="participations")
+            fig4 = px.bar(df_elite_count.sort_values(by="participations", ascending=False),
+                          x="participations", y="club", orientation="h", height=600)
+            st.plotly_chart(fig4, use_container_width=True)
